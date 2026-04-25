@@ -1,0 +1,105 @@
+{
+  "theme": "light",
+  "archetype": "1 (Organic & Earthy)",
+  "emotional_tone": "Approachable, Trustworthy, Professional, Grounded, Calm",
+  "colors": {
+    "background": "#FDFCFB",
+    "surface": "#FFFFFF",
+    "surface_subtle": "#F7F5F2",
+    "primary": "#2D5A27",
+    "primary_hover": "#3B7235",
+    "secondary": "#E5A97D",
+    "text_primary": "#1C1917",
+    "text_secondary": "#57534E",
+    "border": "#E7E5E4",
+    "status": {
+      "new": {"bg": "#E0E7FF", "text": "#3730A3", "border": "#C7D2FE"},
+      "contacted": {"bg": "#FEF3C7", "text": "#92400E", "border": "#FDE68A"},
+      "won": {"bg": "#D1FAE5", "text": "#065F46", "border": "#A7F3D0"},
+      "lost": {"bg": "#FEE2E2", "text": "#991B1B", "border": "#FECACA"}
+    }
+  },
+  "typography": {
+    "heading_font": "Manrope, sans-serif",
+    "body_font": "'IBM Plex Sans', sans-serif",
+    "import_url": "https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=Manrope:wght@300;400;500;600;700&display=swap",
+    "hierarchy": {
+      "h1": "text-4xl sm:text-5xl tracking-tight font-light text-[#1C1917]",
+      "h2": "text-2xl sm:text-3xl tracking-tight font-medium text-[#1C1917]",
+      "h3": "text-xl sm:text-2xl tracking-tight font-medium text-[#1C1917]",
+      "body": "text-base leading-relaxed text-[#57534E]",
+      "small_label": "text-xs uppercase tracking-[0.2em] font-semibold text-[#57534E]"
+    }
+  },
+  "layout": {
+    "grid": "grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6",
+    "spacing": "p-6 md:p-8",
+    "container_max_width": "max-w-7xl mx-auto",
+    "component_style": "Flat background, 1px subtle border (border-[#E7E5E4]), max 8px border-radius (rounded-lg). Generous internal padding (p-6). No heavy drop shadows. Hover states have a slight lift (-translate-y-0.5) and a soft ambient shadow (shadow-sm).",
+    "header": "Solid background (bg-white/80) with crystal glassmorphism (backdrop-blur-md) and 1px bottom border (border-[#E7E5E4]). Sticky top, z-50."
+  },
+  "components": {
+    "buttons": {
+      "primary": "bg-[#2D5A27] text-white hover:bg-[#3B7235] hover:shadow-md transition-all duration-200 rounded-md px-6 py-2.5 font-medium",
+      "secondary": "bg-white text-[#1C1917] border border-[#E7E5E4] hover:bg-[#F7F5F2] transition-all duration-200 rounded-md px-6 py-2.5 font-medium"
+    },
+    "cards": {
+      "dashboard_stat": "bg-white border border-[#E7E5E4] rounded-lg p-6 flex flex-col justify-between transition-all duration-300 hover:shadow-[0_4px_20px_rgba(0,0,0,0.03)] hover:-translate-y-0.5"
+    },
+    "table": {
+      "container": "bg-white border border-[#E7E5E4] rounded-lg overflow-hidden",
+      "header": "bg-[#F7F5F2] text-[#57534E] font-medium text-sm tracking-wider uppercase px-6 py-4",
+      "row": "border-t border-[#E7E5E4] hover:bg-[#FDFCFB] transition-colors duration-150",
+      "cell": "px-6 py-4 text-sm text-[#1C1917] whitespace-nowrap"
+    },
+    "inputs": "bg-white border border-[#E7E5E4] rounded-md px-4 py-2 focus:ring-2 focus:ring-[#2D5A27]/20 focus:border-[#2D5A27] transition-all outline-none text-[#1C1917] placeholder:text-[#57534E]"
+  },
+  "pages": {
+    "login": {
+      "description": "Centered marketing-style hero for Google SSO.",
+      "layout": "Full-screen layout featuring the background image spanning the entire viewport. The login container should be a centralized Glassmorphism card (backdrop-blur-xl bg-white/70 border border-white/40 shadow-xl rounded-2xl p-10 max-w-md w-full).",
+      "background_image": "https://images.pexels.com/photos/12872929/pexels-photo-12872929.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940"
+    },
+    "dashboard": {
+      "description": "Top Header with Logo and Avatar. KPI cards spanning the top row (Total, New, Contacted, Won, Lost). Below it, the Leads Table with search and filter controls.",
+      "actions": "Add Lead button prominently placed above the table. Row actions (Edit, Delete) in the last column of the table."
+    }
+  },
+  "media": {
+    "images": [
+      {
+        "url": "https://images.pexels.com/photos/12872929/pexels-photo-12872929.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "category": "login_background",
+        "description": "Abstract soft sand beige waves texture for the login page background"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1758598304332-94b40ce7c7b4?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzNTl8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBoZWFkc2hvdCUyMHBvcnRyYWl0JTIwc21pbGluZyUyMG5hdHVyYWwlMjBsaWdodHxlbnwwfHx8fDE3NzcwOTk2ODF8MA&ixlib=rb-4.1.0&q=85",
+        "category": "user_avatar",
+        "description": "Professional smiling woman headshot for the user avatar in the header"
+      }
+    ],
+    "icons": {
+      "library": "lucide-react",
+      "instructions": "Use lucide-react for all icons. E.g., Target or Leaf for the CRM Logo, LayoutDashboard, Users, UserPlus, Search, Filter, MoreVertical, LogOut."
+    }
+  },
+  "interactions_and_motion": {
+    "hover_states": "Buttons and cards should lift slightly (-translate-y-0.5) with a soft shadow. Table rows should subtly shift background color.",
+    "transitions": "Use Tailwind's transition-all duration-200 ease-in-out universally on interactive elements.",
+    "accessibility": "Ensure all form inputs have explicit focus states. Use data-testid on all interactive elements (buttons, inputs, row actions, filters)."
+  },
+  "instructions_to_main_agent": [
+    "Install lucide-react if not already installed. Use yarn add lucide-react",
+    "Add google fonts import in index.css: @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=Manrope:wght@300;400;500;600;700&display=swap');",
+    "Configure tailwind.config.js to use Manrope for sans and IBM Plex Sans for body if necessary, or just apply it globally in index.css body { font-family: 'IBM Plex Sans', sans-serif; } and h1,h2,h3,h4,h5,h6 { font-family: 'Manrope', sans-serif; }.",
+    "Use Shadcn UI components for Tables, Dialogs, Dropdowns, Selects, and Inputs. Customize them to remove heavy borders and shadows, matching the 'Organic & Earthy' flat-and-subtle theme. (Remove default Vercel-look)",
+    "Build the Login page with a full-cover background image and a centralized Glassmorphism card for the Google SSO button. Use backdrop-blur-xl, bg-white/70, and a delicate 1px border-white/40.",
+    "Dashboard page must have a sticky header with a backdrop-blur. The layout uses generous padding (p-6 or p-8).",
+    "KPI stats cards should use the grid layout defined. Make sure there are 5 cards or they span correctly in the grid (Total Leads, New, Contacted, Won, Lost).",
+    "Status badges must use the specified status colors (tinted backgrounds with darker text) for high visibility without being overwhelming.",
+    "Include 'data-testid' on all major elements: login-form-submit-button, add-lead-button, search-input, status-filter, lead-row, edit-action, delete-action.",
+    "Avoid generic purple gradients or stark black/white contrasts. Stick to the warm, earthy stone/moss palette provided.",
+    "Never use generic placeholders for missing images. Use the exact URLs provided in the media section.",
+    "For the Google SSO button, use an authentic looking Google logo (e.g., via lucide or simple SVG) and make the button white with subtle shadow and border, matching standard Google sign-in aesthetics."
+  ]
+}
