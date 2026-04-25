@@ -1,0 +1,17 @@
+# render.yaml — one-click Render deploy for the FastAPI backend.
+# In Render: New → Blueprint → connect this repo → confirm.
+services:
+  - type: web
+    name: grove-crm-backend
+    runtime: python
+    rootDir: backend
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn server:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: MONGO_URL
+        sync: false        # set in Render dashboard
+      - key: DB_NAME
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
