@@ -47,6 +47,7 @@ class LeadCreate(BaseModel):
     source: LeadSource
     deal_value: float = 0
     status: LeadStatus = "New"
+    next_follow_up: Optional[str] = None  # ISO date YYYY-MM-DD
 
 class LeadUpdate(BaseModel):
     lead_name: Optional[str] = None
@@ -56,6 +57,7 @@ class LeadUpdate(BaseModel):
     source: Optional[LeadSource] = None
     deal_value: Optional[float] = None
     status: Optional[LeadStatus] = None
+    next_follow_up: Optional[str] = None
 
 class Lead(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -68,8 +70,20 @@ class Lead(BaseModel):
     source: LeadSource
     deal_value: float
     status: LeadStatus
+    next_follow_up: Optional[str] = None
     created_at: datetime
     updated_at: datetime
+
+class NoteCreate(BaseModel):
+    text: str
+
+class Note(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    note_id: str
+    lead_id: str
+    user_id: str
+    text: str
+    created_at: datetime
 
 
 # ---------- Auth Helper ----------
@@ -237,33 +251,86 @@ async def delete_lead(lead_id: str, user: User = Depends(get_current_user)):
     res = await db.leads.delete_one({"lead_id": lead_id, "user_id": user.user_id})
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Lead not found")
+    await db.lead_notes.delete_many({"lead_id": lead_id, "user_id": user.user_id})
     return {"ok": True}
+
+
+# ---------- Notes ----------
+async def _ensure_lead_owned(lead_id: str, user_id: str):
+    lead = await db.leads.find_one({"lead_id": lead_id, "user_id": user_id}, {"_id": 0})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    return lead
+
+
+@api_router.get("/leads/{lead_id}/notes", response_model=List[Note])
+async def list_notes(lead_id: str, user: User = Depends(get_current_user)):
+    await _ensure_lead_owned(lead_id, user.user_id)
+    docs = await db.lead_notes.find(
+        {"lead_id": lead_id, "user_id": user.user_id}, {"_id": 0}
+    ).sort("created_at", -1).to_list(1000)
+    for d in docs:
+        if isinstance(d.get("created_at"), str):
+            d["created_at"] = datetime.fromisoformat(d["created_at"])
+    return [Note(**d) for d in docs]
+
+
+@api_router.post("/leads/{lead_id}/notes", response_model=Note)
+async def add_note(lead_id: str, payload: NoteCreate, user: User = Depends(get_current_user)):
+    await _ensure_lead_owned(lead_id, user.user_id)
+    if not payload.text.strip():
+        raise HTTPException(status_code=400, detail="Note text required")
+    now = datetime.now(timezone.utc)
+    doc = {
+        "note_id": f"note_{uuid.uuid4().hex[:12]}",
+        "lead_id": lead_id,
+        "user_id": user.user_id,
+        "text": payload.text.strip(),
+        "created_at": now.isoformat(),
+    }
+    await db.lead_notes.insert_one(doc)
+    return Note(**{**doc, "created_at": now})
 
 
 @api_router.get("/dashboard/stats")
 async def dashboard_stats(user: User = Depends(get_current_user)):
-    pipeline = [
-        {"$match": {"user_id": user.user_id}},
-        {"$group": {"_id": "$status", "count": {"$sum": 1}, "value": {"$sum": "$deal_value"}}},
-    ]
     by_status = {"New": 0, "Contacted": 0, "Won": 0, "Lost": 0}
     total = 0
     total_value = 0.0
     won_value = 0.0
-    async for row in db.leads.aggregate(pipeline):
-        s = row["_id"]
-        c = row["count"]
-        v = row.get("value", 0) or 0
+    async for row in db.leads.aggregate([
+        {"$match": {"user_id": user.user_id}},
+        {"$group": {"_id": "$status", "count": {"$sum": 1}, "value": {"$sum": "$deal_value"}}},
+    ]):
+        s, c, v = row["_id"], row["count"], row.get("value", 0) or 0
         by_status[s] = c
         total += c
         total_value += v
         if s == "Won":
             won_value = v
+
+    by_source = {"LinkedIn": 0, "Website": 0, "Referral": 0, "Other": 0}
+    async for row in db.leads.aggregate([
+        {"$match": {"user_id": user.user_id}},
+        {"$group": {"_id": "$source", "count": {"$sum": 1}}},
+    ]):
+        if row["_id"] in by_source:
+            by_source[row["_id"]] = row["count"]
+
+    today = datetime.now(timezone.utc).date().isoformat()
+    overdue_count = await db.leads.count_documents({
+        "user_id": user.user_id,
+        "next_follow_up": {"$ne": None, "$lte": today},
+        "status": {"$nin": ["Won", "Lost"]},
+    })
+
     return {
         "total": total,
         "by_status": by_status,
+        "by_source": by_source,
         "total_value": total_value,
         "won_value": won_value,
+        "overdue_followups": overdue_count,
     }
 
 

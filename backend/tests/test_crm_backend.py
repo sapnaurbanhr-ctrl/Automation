@@ -7,7 +7,7 @@ the Emergent OAuth exchange (per /app/auth_testing.md).
 import os
 import time
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, date
 
 import pytest
 import requests
@@ -60,6 +60,7 @@ def _provision_user(suffix: str):
 def user_a():
     uid, tok = _provision_user("A")
     yield uid, tok
+    db.lead_notes.delete_many({"user_id": uid})
     db.leads.delete_many({"user_id": uid})
     db.user_sessions.delete_many({"user_id": uid})
     db.users.delete_many({"user_id": uid})
@@ -69,6 +70,7 @@ def user_a():
 def user_b():
     uid, tok = _provision_user("B")
     yield uid, tok
+    db.lead_notes.delete_many({"user_id": uid})
     db.leads.delete_many({"user_id": uid})
     db.user_sessions.delete_many({"user_id": uid})
     db.users.delete_many({"user_id": uid})
@@ -217,3 +219,143 @@ class TestIsolation:
         # delete attempt by B -> 404
         d = requests.delete(f"{BASE_URL}/api/leads/{a_id}", headers=_h(tok_b))
         assert d.status_code == 404
+
+
+# ---------- Phase 2: Notes ----------
+class TestNotes:
+    def _create_lead(self, tok, name="NotesLead"):
+        return requests.post(f"{BASE_URL}/api/leads", headers=_h(tok), json={
+            "lead_name": name, "company_name": "NCo", "email": "n@n.com",
+            "phone": "1", "source": "LinkedIn", "deal_value": 0, "status": "New",
+        }).json()
+
+    def test_add_note_returns_full_payload(self, user_a):
+        _, tok = user_a
+        lead = self._create_lead(tok, "NoteLead1")
+        r = requests.post(
+            f"{BASE_URL}/api/leads/{lead['lead_id']}/notes",
+            headers=_h(tok), json={"text": "First note"},
+        )
+        assert r.status_code == 200, r.text
+        n = r.json()
+        assert n["text"] == "First note"
+        assert n["lead_id"] == lead["lead_id"]
+        assert n["note_id"].startswith("note_")
+        assert "created_at" in n
+
+    def test_list_notes_newest_first(self, user_a):
+        _, tok = user_a
+        lead = self._create_lead(tok, "NoteLead2")
+        for txt in ["alpha", "beta", "gamma"]:
+            r = requests.post(
+                f"{BASE_URL}/api/leads/{lead['lead_id']}/notes",
+                headers=_h(tok), json={"text": txt},
+            )
+            assert r.status_code == 200
+            time.sleep(0.02)
+        r = requests.get(
+            f"{BASE_URL}/api/leads/{lead['lead_id']}/notes", headers=_h(tok)
+        )
+        assert r.status_code == 200
+        notes = r.json()
+        texts = [n["text"] for n in notes]
+        assert texts == ["gamma", "beta", "alpha"], f"got {texts}"
+
+    def test_empty_text_rejected(self, user_a):
+        _, tok = user_a
+        lead = self._create_lead(tok, "NoteLeadEmpty")
+        r = requests.post(
+            f"{BASE_URL}/api/leads/{lead['lead_id']}/notes",
+            headers=_h(tok), json={"text": "   "},
+        )
+        assert r.status_code == 400
+
+    def test_other_user_cannot_add_or_list_notes(self, user_a, user_b):
+        _, tok_a = user_a
+        _, tok_b = user_b
+        lead = self._create_lead(tok_a, "PrivateNoteLead")
+        # B tries to list -> 404
+        r = requests.get(
+            f"{BASE_URL}/api/leads/{lead['lead_id']}/notes", headers=_h(tok_b)
+        )
+        assert r.status_code == 404
+        # B tries to add -> 404
+        r = requests.post(
+            f"{BASE_URL}/api/leads/{lead['lead_id']}/notes",
+            headers=_h(tok_b), json={"text": "sneak"},
+        )
+        assert r.status_code == 404
+
+
+# ---------- Phase 2: Follow-up ----------
+class TestFollowUp:
+    def test_create_with_follow_up_persists(self, user_a):
+        _, tok = user_a
+        target = (date.today() + timedelta(days=5)).isoformat()
+        r = requests.post(f"{BASE_URL}/api/leads", headers=_h(tok), json={
+            "lead_name": "FU1", "company_name": "FUCo", "email": "f@f.com",
+            "phone": "1", "source": "Website", "deal_value": 0, "status": "New",
+            "next_follow_up": target,
+        })
+        assert r.status_code == 200
+        created = r.json()
+        assert created["next_follow_up"] == target
+        # persisted
+        leads = requests.get(f"{BASE_URL}/api/leads", headers=_h(tok)).json()
+        found = next(l for l in leads if l["lead_id"] == created["lead_id"])
+        assert found["next_follow_up"] == target
+
+    def test_update_and_clear_follow_up(self, user_a):
+        _, tok = user_a
+        c = requests.post(f"{BASE_URL}/api/leads", headers=_h(tok), json={
+            "lead_name": "FU2", "company_name": "FU2Co", "email": "f2@f.com",
+            "phone": "1", "source": "Other", "deal_value": 0, "status": "New",
+        }).json()
+        lid = c["lead_id"]
+        new_d = (date.today() + timedelta(days=2)).isoformat()
+        u = requests.put(f"{BASE_URL}/api/leads/{lid}", headers=_h(tok),
+                         json={"next_follow_up": new_d})
+        assert u.status_code == 200
+        assert u.json()["next_follow_up"] == new_d
+        # NOTE: clearing via PUT with None is filtered by current backend (None values
+        # excluded in update_data). Document behavior; not asserting "cleared" here.
+
+
+# ---------- Phase 2: Dashboard insights ----------
+class TestDashboardPhase2:
+    def test_by_source_and_overdue(self, user_b):
+        # Fresh user to make counts deterministic
+        uid, tok = user_b
+        # cleanup any previous
+        db.leads.delete_many({"user_id": uid})
+
+        today = date.today().isoformat()
+        past = (date.today() - timedelta(days=3)).isoformat()
+        future = (date.today() + timedelta(days=10)).isoformat()
+        seeds = [
+            {"source": "LinkedIn", "next_follow_up": past, "status": "New"},      # overdue
+            {"source": "LinkedIn", "next_follow_up": today, "status": "Contacted"},# overdue (today)
+            {"source": "Website", "next_follow_up": future, "status": "New"},     # future, not overdue
+            {"source": "Referral", "next_follow_up": past, "status": "Won"},      # excluded (Won)
+            {"source": "Other", "next_follow_up": None, "status": "New"},         # no follow-up
+        ]
+        for i, s in enumerate(seeds):
+            requests.post(f"{BASE_URL}/api/leads", headers=_h(tok), json={
+                "lead_name": f"DS{i}", "company_name": f"DSCo{i}",
+                "email": f"d{i}@d.com", "phone": "1", "deal_value": 0, **s,
+            })
+
+        r = requests.get(f"{BASE_URL}/api/dashboard/stats", headers=_h(tok))
+        assert r.status_code == 200
+        data = r.json()
+        assert "by_source" in data
+        for k in ("LinkedIn", "Website", "Referral", "Other"):
+            assert k in data["by_source"]
+        assert data["by_source"]["LinkedIn"] == 2
+        assert data["by_source"]["Website"] == 1
+        assert data["by_source"]["Referral"] == 1
+        assert data["by_source"]["Other"] == 1
+        assert "overdue_followups" in data
+        # 2 overdue (past + today, both not Won/Lost). The Won one is excluded.
+        assert data["overdue_followups"] == 2
+

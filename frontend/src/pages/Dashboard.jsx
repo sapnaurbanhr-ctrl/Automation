@@ -3,6 +3,8 @@ import Header from "../components/Header";
 import StatsCards from "../components/StatsCards";
 import LeadsTable from "../components/LeadsTable";
 import LeadFormDialog from "../components/LeadFormDialog";
+import LeadDetailSheet from "../components/LeadDetailSheet";
+import SourceInsights from "../components/SourceInsights";
 import { Input } from "../components/ui/input";
 import { Button } from "../components/ui/button";
 import {
@@ -22,7 +24,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "../components/ui/alert-dialog";
-import { Plus, Search } from "lucide-react";
+import { Plus, Search, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 import api from "../lib/api";
 
@@ -34,6 +36,8 @@ export default function Dashboard() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingLead, setEditingLead] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [detailLead, setDetailLead] = useState(null);
+  const [sheetOpen, setSheetOpen] = useState(false);
 
   const fetchStats = useCallback(async () => {
     try {
@@ -49,30 +53,37 @@ export default function Dashboard() {
       if (search) params.search = search;
       const { data } = await api.get("/leads", { params });
       setLeads(data);
+      // sync detail lead with fresh data if open
+      setDetailLead((prev) => (prev ? data.find((l) => l.lead_id === prev.lead_id) || prev : prev));
     } catch (_) {}
   }, [search, statusFilter]);
 
-  useEffect(() => {
-    fetchStats();
-  }, [fetchStats]);
-
+  useEffect(() => { fetchStats(); }, [fetchStats]);
   useEffect(() => {
     const t = setTimeout(fetchLeads, 200);
     return () => clearTimeout(t);
   }, [fetchLeads]);
 
-  const handleSaved = async () => {
+  const refreshAll = async () => {
     await Promise.all([fetchLeads(), fetchStats()]);
   };
 
-  const openCreate = () => {
-    setEditingLead(null);
-    setDialogOpen(true);
+  const openCreate = () => { setEditingLead(null); setDialogOpen(true); };
+  const openEdit = (lead) => { setEditingLead(lead); setDialogOpen(true); };
+
+  const openDetail = (lead) => {
+    setDetailLead(lead);
+    setSheetOpen(true);
   };
 
-  const openEdit = (lead) => {
-    setEditingLead(lead);
-    setDialogOpen(true);
+  const handleQuickStatus = async (lead, status) => {
+    try {
+      await api.put(`/leads/${lead.lead_id}`, { status });
+      toast.success(`Marked as ${status}`);
+      await refreshAll();
+    } catch (_) {
+      toast.error("Failed to update status");
+    }
   };
 
   const confirmDelete = async () => {
@@ -81,11 +92,13 @@ export default function Dashboard() {
       await api.delete(`/leads/${deleteTarget.lead_id}`);
       toast.success("Lead deleted");
       setDeleteTarget(null);
-      await Promise.all([fetchLeads(), fetchStats()]);
-    } catch (e) {
+      await refreshAll();
+    } catch (_) {
       toast.error("Failed to delete");
     }
   };
+
+  const overdue = stats?.overdue_followups || 0;
 
   return (
     <div className="min-h-screen bg-[#FDFCFB]" data-testid="dashboard-page">
@@ -102,10 +115,26 @@ export default function Dashboard() {
           <p className="text-[#57534E] text-base leading-relaxed">
             Track every conversation, follow-up, and opportunity in one quiet place.
           </p>
+
+          {overdue > 0 && (
+            <div
+              data-testid="overdue-banner"
+              className="mt-6 flex items-center gap-3 bg-[#FEE2E2] border border-[#FECACA] text-[#991B1B] rounded-lg px-4 py-3"
+            >
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <span className="text-sm">
+                {overdue} {overdue === 1 ? "lead has" : "leads have"} a follow-up due today or overdue.
+              </span>
+            </div>
+          )}
         </section>
 
         <section className="mb-12">
           <StatsCards stats={stats} />
+        </section>
+
+        <section className="mb-12">
+          <SourceInsights stats={stats} />
         </section>
 
         <section>
@@ -113,7 +142,7 @@ export default function Dashboard() {
             <div>
               <h2 className="text-2xl tracking-tight font-medium text-[#1C1917]">Leads</h2>
               <p className="text-sm text-[#57534E] mt-1">
-                {leads.length} {leads.length === 1 ? "lead" : "leads"} shown
+                {leads.length} {leads.length === 1 ? "lead" : "leads"} shown · click a row to view notes
               </p>
             </div>
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
@@ -154,6 +183,8 @@ export default function Dashboard() {
             leads={leads}
             onEdit={openEdit}
             onDelete={(l) => setDeleteTarget(l)}
+            onQuickStatus={handleQuickStatus}
+            onOpenLead={openDetail}
           />
         </section>
       </main>
@@ -162,7 +193,14 @@ export default function Dashboard() {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         lead={editingLead}
-        onSaved={handleSaved}
+        onSaved={refreshAll}
+      />
+
+      <LeadDetailSheet
+        open={sheetOpen}
+        onOpenChange={setSheetOpen}
+        lead={detailLead}
+        onChanged={refreshAll}
       />
 
       <AlertDialog
