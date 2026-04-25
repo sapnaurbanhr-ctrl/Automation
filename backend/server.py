@@ -232,7 +232,7 @@ async def create_lead(payload: LeadCreate, user: User = Depends(get_current_user
 
 @api_router.put("/leads/{lead_id}", response_model=Lead)
 async def update_lead(lead_id: str, payload: LeadUpdate, user: User = Depends(get_current_user)):
-    update_data = {k: v for k, v in payload.model_dump().items() if v is not None}
+    update_data = payload.model_dump(exclude_unset=True)
     if not update_data:
         raise HTTPException(status_code=400, detail="No fields to update")
     update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
