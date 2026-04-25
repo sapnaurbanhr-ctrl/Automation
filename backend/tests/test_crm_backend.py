@@ -359,3 +359,164 @@ class TestDashboardPhase2:
         # 2 overdue (past + today, both not Won/Lost). The Won one is excluded.
         assert data["overdue_followups"] == 2
 
+
+# ---------- Phase 3: GET lead by id ----------
+class TestGetLeadById:
+    def test_get_owned_lead(self, user_a):
+        _, tok = user_a
+        c = requests.post(f"{BASE_URL}/api/leads", headers=_h(tok), json={
+            "lead_name": "ByIdLead", "company_name": "ByIdCo", "email": "x@x.com",
+            "phone": "1", "source": "Other", "deal_value": 50, "status": "New",
+        }).json()
+        r = requests.get(f"{BASE_URL}/api/leads/{c['lead_id']}", headers=_h(tok))
+        assert r.status_code == 200
+        data = r.json()
+        assert data["lead_id"] == c["lead_id"]
+        assert data["lead_name"] == "ByIdLead"
+        assert data["deal_value"] == 50
+
+    def test_get_other_user_lead_returns_404(self, user_a, user_b):
+        _, tok_a = user_a
+        _, tok_b = user_b
+        c = requests.post(f"{BASE_URL}/api/leads", headers=_h(tok_a), json={
+            "lead_name": "PrivById", "company_name": "PrivCo", "email": "p@p.com",
+            "phone": "1", "source": "Other", "deal_value": 0, "status": "New",
+        }).json()
+        r = requests.get(f"{BASE_URL}/api/leads/{c['lead_id']}", headers=_h(tok_b))
+        assert r.status_code == 404
+
+
+# ---------- Phase 3: Note edit/delete ----------
+class TestNoteEditDelete:
+    def _make_lead_and_note(self, tok, txt="orig"):
+        lead = requests.post(f"{BASE_URL}/api/leads", headers=_h(tok), json={
+            "lead_name": "NoteEd", "company_name": "NCo", "email": "n@n.com",
+            "phone": "1", "source": "LinkedIn", "deal_value": 0, "status": "New",
+        }).json()
+        note = requests.post(
+            f"{BASE_URL}/api/leads/{lead['lead_id']}/notes",
+            headers=_h(tok), json={"text": txt},
+        ).json()
+        return lead, note
+
+    def test_update_note(self, user_a):
+        _, tok = user_a
+        lead, note = self._make_lead_and_note(tok)
+        r = requests.put(
+            f"{BASE_URL}/api/leads/{lead['lead_id']}/notes/{note['note_id']}",
+            headers=_h(tok), json={"text": "updated text"},
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["text"] == "updated text"
+        # GET verify
+        rl = requests.get(
+            f"{BASE_URL}/api/leads/{lead['lead_id']}/notes", headers=_h(tok)
+        ).json()
+        assert any(n["note_id"] == note["note_id"] and n["text"] == "updated text" for n in rl)
+
+    def test_update_note_empty_400(self, user_a):
+        _, tok = user_a
+        lead, note = self._make_lead_and_note(tok)
+        r = requests.put(
+            f"{BASE_URL}/api/leads/{lead['lead_id']}/notes/{note['note_id']}",
+            headers=_h(tok), json={"text": "   "},
+        )
+        assert r.status_code == 400
+
+    def test_update_note_cross_user_404(self, user_a, user_b):
+        _, tok_a = user_a
+        _, tok_b = user_b
+        lead, note = self._make_lead_and_note(tok_a, "secret")
+        r = requests.put(
+            f"{BASE_URL}/api/leads/{lead['lead_id']}/notes/{note['note_id']}",
+            headers=_h(tok_b), json={"text": "hack"},
+        )
+        assert r.status_code == 404
+
+    def test_delete_note(self, user_a):
+        _, tok = user_a
+        lead, note = self._make_lead_and_note(tok)
+        r = requests.delete(
+            f"{BASE_URL}/api/leads/{lead['lead_id']}/notes/{note['note_id']}",
+            headers=_h(tok),
+        )
+        assert r.status_code == 200
+        rl = requests.get(
+            f"{BASE_URL}/api/leads/{lead['lead_id']}/notes", headers=_h(tok)
+        ).json()
+        assert all(n["note_id"] != note["note_id"] for n in rl)
+
+    def test_delete_note_cross_user_404(self, user_a, user_b):
+        _, tok_a = user_a
+        _, tok_b = user_b
+        lead, note = self._make_lead_and_note(tok_a, "del-secret")
+        r = requests.delete(
+            f"{BASE_URL}/api/leads/{lead['lead_id']}/notes/{note['note_id']}",
+            headers=_h(tok_b),
+        )
+        assert r.status_code == 404
+
+
+# ---------- Phase 3: CSV export/import ----------
+class TestCsv:
+    def test_export_csv_header_and_rows(self, user_a):
+        _, tok = user_a
+        # ensure at least one lead
+        requests.post(f"{BASE_URL}/api/leads", headers=_h(tok), json={
+            "lead_name": "CsvLead", "company_name": "CsvCo", "email": "csv@c.com",
+            "phone": "555", "source": "Website", "deal_value": 99, "status": "New",
+        })
+        r = requests.get(f"{BASE_URL}/api/leads/export/csv", headers=_h(tok))
+        assert r.status_code == 200
+        ctype = r.headers.get("content-type", "")
+        assert "text/csv" in ctype, f"bad content-type {ctype}"
+        body = r.text.splitlines()
+        assert body[0].split(",") == [
+            "lead_name", "company_name", "email", "phone",
+            "source", "deal_value", "status", "next_follow_up",
+        ]
+        assert len(body) >= 2  # at least one data row
+        assert any("CsvLead" in line for line in body[1:])
+
+    def test_export_csv_only_owners_rows(self, user_a, user_b):
+        _, tok_b = user_b
+        r = requests.get(f"{BASE_URL}/api/leads/export/csv", headers=_h(tok_b))
+        assert r.status_code == 200
+        # user_a's CsvLead must NOT be in user_b's export
+        assert "CsvLead" not in r.text
+
+    def test_import_csv_creates_and_skips(self, user_a):
+        _, tok = user_a
+        csv_body = (
+            "lead_name,company_name,email,phone,source,deal_value,status,next_follow_up\n"
+            "Imp One,ImpCo,i1@x.com,111,LinkedIn,200,New,2026-02-01\n"
+            "Imp Two,ImpCo2,i2@x.com,222,BadSource,300,BadStatus,\n"  # falls back to defaults
+            ",MissingName,nm@x.com,333,Website,0,New,\n"  # missing lead_name -> skip
+            "OnlyName,,nc@x.com,,Other,0,New,\n"  # missing company -> skip
+            "NoEmail,NCo,,,Other,0,New,\n"  # missing email -> skip
+        )
+        files = {"file": ("imp.csv", csv_body, "text/csv")}
+        headers = {"Authorization": f"Bearer {tok}"}
+        r = requests.post(f"{BASE_URL}/api/leads/import/csv", headers=headers, files=files)
+        assert r.status_code == 200, r.text
+        data = r.json()
+        assert data["created"] == 2
+        assert len(data["errors"]) == 3
+        # Verify that "Imp Two" got source/status defaults
+        leads = requests.get(f"{BASE_URL}/api/leads?search=Imp Two", headers=_h(tok)).json()
+        assert len(leads) >= 1
+        imp2 = leads[0]
+        assert imp2["source"] == "Other"
+        assert imp2["status"] == "New"
+        # Verify Imp One persisted with values
+        leads1 = requests.get(f"{BASE_URL}/api/leads?search=Imp One", headers=_h(tok)).json()
+        assert len(leads1) >= 1
+        assert leads1[0]["source"] == "LinkedIn"
+        assert leads1[0]["deal_value"] == 200
+
+    def test_import_csv_rejects_non_csv(self, user_a):
+        _, tok = user_a
+        files = {"file": ("imp.txt", "garbage", "text/plain")}
+        headers = {"Authorization": f"Bearer {tok}"}
+        r = requests.post(f"{BASE_URL}/api/leads/import/csv", headers=headers, files=files)
+        assert r.status_code == 400

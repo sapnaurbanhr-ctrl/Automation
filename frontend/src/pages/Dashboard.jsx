@@ -5,6 +5,7 @@ import LeadsTable from "../components/LeadsTable";
 import LeadFormDialog from "../components/LeadFormDialog";
 import LeadDetailSheet from "../components/LeadDetailSheet";
 import SourceInsights from "../components/SourceInsights";
+import CsvActions from "../components/CsvActions";
 import { Input } from "../components/ui/input";
 import { Button } from "../components/ui/button";
 import {
@@ -176,6 +177,7 @@ export default function Dashboard() {
                 <Plus className="h-4 w-4 mr-2" />
                 Add lead
               </Button>
+              <CsvActions onImported={refreshAll} />
             </div>
           </div>
 

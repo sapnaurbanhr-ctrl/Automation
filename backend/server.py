@@ -292,6 +292,128 @@ async def add_note(lead_id: str, payload: NoteCreate, user: User = Depends(get_c
     return Note(**{**doc, "created_at": now})
 
 
+@api_router.put("/leads/{lead_id}/notes/{note_id}", response_model=Note)
+async def update_note(lead_id: str, note_id: str, payload: NoteCreate, user: User = Depends(get_current_user)):
+    await _ensure_lead_owned(lead_id, user.user_id)
+    if not payload.text.strip():
+        raise HTTPException(status_code=400, detail="Note text required")
+    res = await db.lead_notes.update_one(
+        {"note_id": note_id, "lead_id": lead_id, "user_id": user.user_id},
+        {"$set": {"text": payload.text.strip()}},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Note not found")
+    doc = await db.lead_notes.find_one(
+        {"note_id": note_id, "user_id": user.user_id}, {"_id": 0}
+    )
+    if isinstance(doc.get("created_at"), str):
+        doc["created_at"] = datetime.fromisoformat(doc["created_at"])
+    return Note(**doc)
+
+
+@api_router.delete("/leads/{lead_id}/notes/{note_id}")
+async def delete_note(lead_id: str, note_id: str, user: User = Depends(get_current_user)):
+    await _ensure_lead_owned(lead_id, user.user_id)
+    res = await db.lead_notes.delete_one(
+        {"note_id": note_id, "lead_id": lead_id, "user_id": user.user_id}
+    )
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Note not found")
+    return {"ok": True}
+
+
+@api_router.get("/leads/{lead_id}", response_model=Lead)
+async def get_lead(lead_id: str, user: User = Depends(get_current_user)):
+    doc = await db.leads.find_one({"lead_id": lead_id, "user_id": user.user_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    return Lead(**_serialize_lead(doc))
+
+
+# ---------- CSV Import / Export ----------
+import csv
+import io
+from fastapi import UploadFile, File
+from fastapi.responses import StreamingResponse
+
+CSV_FIELDS = [
+    "lead_name", "company_name", "email", "phone",
+    "source", "deal_value", "status", "next_follow_up",
+]
+
+
+@api_router.get("/leads/export/csv")
+async def export_leads_csv(user: User = Depends(get_current_user)):
+    docs = await db.leads.find({"user_id": user.user_id}, {"_id": 0}).sort("created_at", -1).to_list(10000)
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=CSV_FIELDS)
+    writer.writeheader()
+    for d in docs:
+        writer.writerow({k: (d.get(k) if d.get(k) is not None else "") for k in CSV_FIELDS})
+    buffer.seek(0)
+    return StreamingResponse(
+        iter([buffer.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=leads.csv"},
+    )
+
+
+@api_router.post("/leads/import/csv")
+async def import_leads_csv(file: UploadFile = File(...), user: User = Depends(get_current_user)):
+    if not file.filename.lower().endswith(".csv"):
+        raise HTTPException(status_code=400, detail="Please upload a .csv file")
+    raw = (await file.read()).decode("utf-8-sig", errors="replace")
+    reader = csv.DictReader(io.StringIO(raw))
+
+    valid_sources = {"LinkedIn", "Website", "Referral", "Other"}
+    valid_statuses = {"New", "Contacted", "Won", "Lost"}
+
+    created = 0
+    errors: List[str] = []
+    now = datetime.now(timezone.utc).isoformat()
+
+    for idx, row in enumerate(reader, start=2):  # row 1 is header
+        try:
+            lead_name = (row.get("lead_name") or "").strip()
+            company_name = (row.get("company_name") or "").strip()
+            email = (row.get("email") or "").strip()
+            if not (lead_name and company_name and email):
+                errors.append(f"Row {idx}: missing lead_name/company_name/email")
+                continue
+            source = (row.get("source") or "Other").strip() or "Other"
+            if source not in valid_sources:
+                source = "Other"
+            status = (row.get("status") or "New").strip() or "New"
+            if status not in valid_statuses:
+                status = "New"
+            try:
+                deal_value = float(row.get("deal_value") or 0)
+            except (TypeError, ValueError):
+                deal_value = 0.0
+            next_follow_up = (row.get("next_follow_up") or "").strip() or None
+
+            doc = {
+                "lead_id": f"lead_{uuid.uuid4().hex[:12]}",
+                "user_id": user.user_id,
+                "lead_name": lead_name,
+                "company_name": company_name,
+                "email": email,
+                "phone": (row.get("phone") or "").strip(),
+                "source": source,
+                "deal_value": deal_value,
+                "status": status,
+                "next_follow_up": next_follow_up,
+                "created_at": now,
+                "updated_at": now,
+            }
+            await db.leads.insert_one(doc)
+            created += 1
+        except Exception as e:  # pragma: no cover
+            errors.append(f"Row {idx}: {e}")
+
+    return {"created": created, "errors": errors}
+
+
 @api_router.get("/dashboard/stats")
 async def dashboard_stats(user: User = Depends(get_current_user)):
     by_status = {"New": 0, "Contacted": 0, "Won": 0, "Lost": 0}
